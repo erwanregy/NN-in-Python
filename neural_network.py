@@ -1,171 +1,188 @@
-import math
-import random
-
-
-def sigmoid(x):
-    return 1.0 / (1.0 + math.exp(-x))
-
-
-def relu(x):
-    if x > 0:
-        return x
-    else:
-        return 0.01 * x
-
+from random import uniform
+from math import exp
+from keras import models
+from keras.datasets import mnist
 
 class Neuron:
-    def __init__(self, num_inputs, activation_function):
-        self.weights = []
-        for _ in range(num_inputs):
-            self.weights.append(random.uniform(-1, 1))
-        self.bias = 0
-        self.activation_function = activation_function
-        self.weight_nudges = [[]] * num_inputs
-        self.bias_nudges = []
+    def sigmoid(self, x: float) -> float:
+        try:
+            return 1.0 / (1.0 + exp(-x))
+        except OverflowError:
+            return 0.0
 
-    def calc_output(self, inputs):
-        output = 0.0
-        for weight, input in zip(self.weights, inputs):
-            output += weight * input
-        if self.activation_function == "sigmoid":
-            output = sigmoid(output + self.bias)
-        elif self.activation_function == "relu":
-            output = relu(output + self.bias)
-        return output
+    def relu(self, x: float) -> float:
+        return max(x, 0.0)
 
-    def update_parameters(self):
-        for weight_num, weight_nudges in enumerate(self.weight_nudges):
-            weight_nudges_sum = 0.0
-            num_weight_nudges = len(weight_nudges)
-            for weight_nudge in weight_nudges:
-                weight_nudges_sum += weight_nudge
-            weight_nudge_average = weight_nudges_sum / num_weight_nudges
-            self.weights[weight_num] -= weight_nudge_average
-        bias_nudges_sum = 0.0
-        num_bias_nudges = len(self.bias_nudges)
-        for bias_nudge in self.bias_nudges:
-            bias_nudges_sum += bias_nudge
-        bias_nudge_average = bias_nudges_sum / num_bias_nudges
-        self.bias -= bias_nudge_average
+    def __init__(self, num_inputs: int, activation: str | None) -> None:
+        self.weights: list[float] = [uniform(-0.1, 0.1) for _ in range(num_inputs)]
+        self.bias: float = 0.0
+        self.activation = getattr(self, activation)
+        self.output: float = 0.0
+
+    def calc_output(self, inputs: list[float]) -> None:
+        self.output = self.activation(
+            sum(weight * input for weight, input in zip(self.weights, inputs))
+            + self.bias
+        )
 
 
 class Layer:
-    def __init__(self, num_inputs, num_neurons, activation_function):
-        self.neurons = []
-        for _ in range(num_neurons):
-            self.neurons.append(Neuron(num_inputs, activation_function))
+    def __init__(self, num_inputs: int, num_neurons: int, activation: str) -> None:
+        self.neurons: list[Neuron] = [
+            Neuron(num_inputs, activation) for _ in range(num_neurons)
+        ]
+        self.outputs: list[float] = [0.0 for _ in range(num_neurons)]
 
-    def calc_outputs(self, inputs):
-        outputs = []
-        for neuron in self.neurons:
-            outputs.append(neuron.calc_output(inputs))
-        return outputs
-
-    def update_parameters(self):
-        for neuron in self.neurons:
-            neuron.update_parameters()
+    def calc_outputs(self, inputs: list[float]) -> None:
+        for n, _ in enumerate(self.neurons):
+            self.neurons[n].calc_output(inputs)
+            self.outputs[n] = self.neurons[n].output
 
 
-class Network:
-    def __init__(self, layer_sizes):
-        self.layers = []
-        for num_inputs, num_neurons, in zip(layer_sizes, layer_sizes[1:]):
-            self.layers.append(Layer(num_inputs, num_neurons, "relu"))
-        self.layers[-1].activation_function = "sigmoid"
+class ConvolutionalLayer:
+    def __init__(self, num_filters: int, filter_size: int, stride: int) -> None:
+        self.num_filters: int = num_filters
+        self.filter_size: int = filter_size
+        self.stride: int = stride
+        self.filters: list[list[list[float]]] = [
+            [[uniform(-0.1, 0.1) for _ in range(filter_size)] for _ in range(filter_size)]
+            for _ in range(num_filters)
+        ]
+        self.outputs: list[list[list[float]]] = [
+            [[0.0 for _ in range(28 // stride)] for _ in range(28 // stride)]
+            for _ in range(num_filters)
+        ]
 
-    def feed_forward(self, inputs):
-        outputs = inputs
-        for layer in self.layers:
-            outputs = layer.calc_outputs(outputs)
-        self.outputs = outputs
-
-    def update_parameters(self):
-        for layer in self.layers:
-            layer.update_parameters()
-
-    def calc_cost(self, expected_outputs):
-        sum = 0.0
-        for output, expected_output in zip(self.outputs, expected_outputs):
-            sum += (output - expected_output) ** 2
-        num_outputs = len(self.layers[-1].neurons)
-        self.cost = sum / num_outputs
-
-    def gradient_descent(self, training_inputs, training_outputs, learning_rate):
-        nudge = 0.00000001
-        costs_sum = 0.0
-        for inputs, expected_outputs in zip(training_inputs, training_outputs):
-            self.feed_forward(inputs)
-            self.calc_cost(expected_outputs)
-            original_cost = self.cost
-            for _, layer in reversed(list(enumerate(self.layers))):
-                for neuron_num, neuron in enumerate(layer.neurons):
-                    for weight_num, _ in enumerate(neuron.weights):
-                        neuron.weights[weight_num] += nudge
-                        self.feed_forward(inputs)
-                        self.calc_cost(expected_outputs)
-                        new_cost = self.cost
-                        change_in_cost = new_cost - original_cost
-                        .append(
-                            change_in_cost / nudge * learning_rate
+    def calc_outputs(self, inputs: list[list[float]]) -> None:
+        for f, _ in enumerate(self.filters):
+            for i in range(0, len(inputs) - self.filter_size + 1, self.stride):
+                for j in range(0, len(inputs[0]) - self.filter_size + 1, self.stride):
+                    self.outputs[f][i // self.stride][j // self.stride] = sum(
+                        sum(
+                            self.filters[f][k][l] * inputs[i + k][j + l]
+                            for l in range(self.filter_size)
                         )
-                        neuron.weights[weight_num] -= nudge
-                                             
-                        neuron.weight_nudges[weight_num] = sigmoid_derivative(neuron.weights[weight_num])
-                        neuron.weight_nudges[weight_num] = sigmoid_derivative(neuron.weights[weight_num]) * 
-                        
-                    layer.neurons[neuron_num].bias += nudge
-                    self.feed_forward(inputs)
-                    self.calc_cost(expected_outputs)
-                    new_cost = self.cost
-                    change_in_cost = new_cost - original_cost
-                    layer.neurons[neuron_num].bias_nudges.append(
-                        change_in_cost / nudge * learning_rate
+                        for k in range(self.filter_size)
                     )
-                    layer.neurons[neuron_num].bias -= nudge
-            self.feed_forward(inputs)
-            self.calc_cost(expected_outputs)
-            costs_sum += self.cost
-            self.update_parameters()
-        self.average_cost = costs_sum / len(training_inputs)
 
-    def train(self, training_inputs, training_outputs, num_iterations, learning_rate):
-        for iteration in range(num_iterations):
-            self.gradient_descent(training_inputs, training_outputs, learning_rate)
-            if (iteration + 1) % (num_iterations / 10) == 0:
-                print(f"Iteration {iteration + 1}: ", end="")
-                print(f"Cost = {self.average_cost}")
 
-    def save_parameters(self):
-        file = open("parameters.txt", "w")
-        for layer_num, layer in enumerate(self.layers):
-            file.write(f"layer {layer_num}:\n")
-            for neuron_num, neuron in enumerate(layer.neurons):
-                file.write(f"    neuron {neuron_num}:\n")
-                file.write("        weights:\n")
-                for weight_num, weight in enumerate(neuron.weights):
-                    file.write(f"           {weight_num}: {weight}\n")
-                file.write(f"        bias: {neuron.bias}\n")
-        file.close()
+class NeuralNetwork:
+    def __init__(self, layer_sizes: list[int], activation_functions: list[str]) -> None:
+        self.num_inputs: int = layer_sizes[0]
+        self.layers: list[Layer] = [
+            Layer(num_inputs, num_neurons, activation)
+            for num_inputs, num_neurons, activation in zip(
+                layer_sizes[0:], layer_sizes[1:], activation_functions
+            )
+        ]
+        self.num_outputs: int = layer_sizes[-1]
 
-    def test(self, testing_inputs, testing_outputs):
-        for inputs, expected_outputs in zip(testing_inputs, testing_outputs):
-            self.feed_forward(inputs)
-            self.calc_cost(expected_outputs)
-            print(f"Inputs: {inputs} | Expected Outputs: {expected_outputs} | Outputs: {self.outputs}")
+    def feed_forward(self, inputs: list[float]) -> None:
+        for l, _ in enumerate(self.layers):
+            self.layers[l].calc_outputs(inputs)
+            inputs = self.layers[l].outputs
+        self.outputs = inputs
 
-network = Network([2, 3, 1])
+    def calc_cost(self, inputs, expected_label: int) -> float:
+        self.feed_forward(inputs)
+        expected_outputs = [
+            0.0 if output_num != expected_label else 1.0
+            for output_num in range(self.num_outputs)
+        ]
+        return (
+            sum(
+                (output - expected_output) ** 2
+                for output, expected_output in zip(self.outputs, expected_outputs)
+            )
+            / self.num_outputs
+        )
+        
+    def train(
+        self, train_inputs: list[list[float]], train_labels: list[int]
+    ) -> None:
+        # train network us stochastic gradient descent
+        pass
 
-inputs = [[0, 0],
-          [0, 1],
-          [1, 0],
-          [1, 1]]
-outputs = [[0],
-           [1],
-           [1],
-           [1]]
+    def test(
+        self, test_inputs: list[list[float]], test_labels: list[int]
+    ) -> None:
+        cost = sum(
+            self.calc_cost(inputs, expected_label)
+            for inputs, expected_label in zip(test_inputs, test_labels)
+        ) / len(test_inputs)
+        print(f"Cost: {cost}")
 
-network.train(inputs, outputs, 1000, 0.001)
+    def save(self, path: str) -> None:
+        with open(path, "w") as file:
+            for l, layer in enumerate(self.layers):
+                file.write(f"layer {l}:\n")
+                for n, neuron in enumerate(layer.neurons):
+                    file.write(f"\tneuron {n}:\n")
+                    file.write("\t\tweights:\n")
+                    for _, weight in enumerate(neuron.weights):
+                        file.write(f"\t\t\t{weight}\n")
+                    file.write(f"\t\tbias:\n")
+                    file.write(f"\t\t\t{neuron.bias}\n")
+            file.close()
 
-network.test(inputs, outputs)
+    def load(self, path: str) -> None:
+        with open(path, "r") as file:
+            for l, _ in enumerate(self.layers):
+                file.readline()
+                for n, _ in enumerate(self.layers[l].neurons):
+                    file.readline()
+                    file.readline()
+                    for w, _ in enumerate(self.layers[l].neurons[n].weights):
+                        self.layers[l].neurons[n].weights[w] = float(file.readline())
+                    file.readline()
+                    self.layers[l].neurons[n].bias = float(file.readline())
+                    
+    def predict(self, inputs: list[float]) -> int:
+        self.feed_forward(inputs)
+        return self.outputs.index(max(self.outputs))
+    
+    
+def print_image(image: list[list[float]]) -> None:
+    print("+" + "-" * (len(image[0]) * 2) + "+")
+    for row in image:
+        print("|", end="")
+        for pixel in row:
+            if pixel > 0.8:
+                print("██", end="")
+            elif pixel > 0.6:
+                print("▓▓", end="") 
+            elif pixel > 0.4:
+                print("▒▒", end="") 
+            elif pixel > 0.2:
+                print("░░", end="") 
+            else:
+                print("  ", end="")
+        print("|")
+    print("+" + "-" * (len(image[0]) * 2) + "+")
 
-network.save_parameters()
+
+def main():
+    # Create network
+    neural_network = NeuralNetwork([784, 16, 16, 10], ["relu", "relu", "sigmoid"])
+
+    # Load trained model and load parameters into network
+    neural_network.load("mnist_parameters.txt")
+
+    # Load dataset
+    _, (test_images, test_labels) = mnist.load_data()
+    test_images = test_images / 255.0
+    test_inputs = [
+        [pixel for row in test_image for pixel in row]
+        for test_image in test_images
+    ]
+
+    # Test network on dataset
+    for test_image, test_input, test_label in zip(test_images, test_inputs, test_labels):
+        print_image(test_image)
+        prediction = neural_network.predict(test_input)
+        print(f"Predicted: {prediction}")
+        print(f"Expected:  {test_label}")
+
+
+if __name__ == "__main__":
+    main()
