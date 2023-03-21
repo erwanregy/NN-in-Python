@@ -3,9 +3,13 @@ from datatypes import Matrix, Image
 ascii_scale = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$$"
 pixel_width = 2
 
-def print_image(image: Image) -> None:
-    if isinstance(image[0][0], int):
-        image: Matrix = [[value / 255.0 for value in row] for row in image]
+def print_image(image: Image | Matrix) -> None:
+    if all(isinstance(value, float) for row in image for value in row):
+        pass
+    elif all(isinstance(value, int) for row in image for value in row):
+        image = [[value / 255.0 for value in row] for row in image]
+    else:
+        raise TypeError("Image must be a matrix of integers or floats")
     
     print("+" + "-" * len(image[0]) * pixel_width + "+")
     for row in image:
